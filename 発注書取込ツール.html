@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>発注書 取込ツール｜レンティオ / 藤本</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --ink:#111820;
+  --paper:#EDF0F3;
+  --card:#FFFFFF;
+  --line:#D2DAE2;
+  --line-soft:#E7ECF1;
+  --muted:#5E6D7C;
+  --ok:#15803D;
+  --warn:#B45309;
+  --err:#B91C1C;
+  --rentio:#0E7490;
+  --rentio-soft:#E2F3F8;
+  --fujimoto:#B45309;
+  --fujimoto-soft:#FBEEDD;
+  --accent:var(--rentio);
+  --accent-soft:var(--rentio-soft);
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Consolas,"Liberation Mono",monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--paper);
+  color:var(--ink);
+  font-family:"Helvetica Neue",Arial,"Hiragino Kaku Gothic ProN","Yu Gothic",YuGothic,Meiryo,sans-serif;
+  font-size:15px;line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+}
+body.fujimoto{--accent:var(--fujimoto);--accent-soft:var(--fujimoto-soft)}
+.wrap{max-width:1180px;margin:0 auto;padding:24px 20px 80px}
+
+/* ---------- header ---------- */
+header.top{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:20px}
+header.top h1{font-size:20px;letter-spacing:.02em;margin:0;font-weight:800}
+header.top .sub{color:var(--muted);font-size:13px}
+
+/* ---------- channel switch ---------- */
+.switch{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px}
+.chan{
+  appearance:none;border:2px solid var(--line);background:var(--card);
+  border-radius:12px;padding:18px 20px;cursor:pointer;text-align:left;
+  display:flex;align-items:center;gap:16px;transition:.12s ease;
+  font-family:inherit;color:var(--ink);
+}
+.chan:hover{border-color:#9FB0BF}
+.chan .mark{
+  width:52px;height:52px;flex:0 0 52px;border-radius:10px;
+  display:grid;place-items:center;font-weight:800;font-size:19px;letter-spacing:.04em;
+  background:#EEF1F4;color:var(--muted);
+}
+.chan .nm{font-size:19px;font-weight:800;letter-spacing:.03em}
+.chan .desc{font-size:12px;color:var(--muted);margin-top:2px}
+.chan[aria-pressed="true"]{border-width:2px}
+.chan.rentio[aria-pressed="true"]{border-color:var(--rentio);background:var(--rentio-soft)}
+.chan.rentio[aria-pressed="true"] .mark{background:var(--rentio);color:#fff}
+.chan.fujimoto[aria-pressed="true"]{border-color:var(--fujimoto);background:var(--fujimoto-soft)}
+.chan.fujimoto[aria-pressed="true"] .mark{background:var(--fujimoto);color:#fff}
+.chan:focus-visible{outline:3px solid #111820;outline-offset:2px}
+
+/* ---------- mode banner ---------- */
+.mode{
+  display:flex;align-items:center;gap:12px;
+  background:var(--accent);color:#fff;border-radius:10px;padding:10px 16px;margin-bottom:16px;
+  font-weight:700;letter-spacing:.03em;
+}
+.mode .fmt{font-weight:400;font-size:12.5px;opacity:.92;font-family:var(--mono)}
+
+/* ---------- panels ---------- */
+.panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px}
+.panel > h2{font-size:13px;margin:0 0 12px;letter-spacing:.08em;color:var(--muted);font-weight:700}
+.step{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--accent);color:#fff;font-size:12px;margin-right:8px;vertical-align:1px;font-family:var(--mono)}
+
+/* ---------- dropzone ---------- */
+.drop{
+  display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+  border:1px solid var(--accent);border-left:6px solid var(--accent);
+  border-radius:10px;background:var(--accent-soft);
+  padding:20px 22px;cursor:pointer;transition:.12s ease;
+}
+.drop:hover{filter:brightness(.985)}
+.drop.over{box-shadow:inset 0 0 0 2px var(--accent)}
+.drop .pick{
+  flex:0 0 auto;background:var(--accent);color:#fff;font-weight:700;font-size:15px;
+  padding:12px 22px;border-radius:8px;white-space:nowrap;
+}
+.drop .txt{min-width:0;display:block}
+.drop .big{display:block;font-size:15.5px;font-weight:700}
+.drop .small{display:block;font-size:12.5px;color:var(--muted);margin-top:3px}
+.drop input{display:none}
+.drop:focus-within{outline:3px solid var(--ink);outline-offset:2px}
+
+/* ---------- files ---------- */
+.files{list-style:none;margin:14px 0 0;padding:0;font-size:13px}
+.files li{display:flex;gap:10px;align-items:center;padding:7px 10px;border:1px solid var(--line-soft);border-radius:8px;margin-top:6px;background:#FBFCFD}
+.files .fn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.files .cnt{font-family:var(--mono);color:var(--muted);font-size:12px}
+
+/* ---------- controls ---------- */
+.controls{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end}
+.field{display:flex;flex-direction:column;gap:5px}
+.field label{font-size:12px;color:var(--muted);font-weight:700;letter-spacing:.04em}
+input[type=text],input[type=date],select{
+  font-family:inherit;font-size:14px;padding:8px 10px;border:1px solid var(--line);
+  border-radius:8px;background:#fff;color:var(--ink);min-height:38px;
+}
+input:focus,select:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:var(--accent)}
+.btn{
+  font-family:inherit;font-size:14px;font-weight:700;padding:10px 18px;border-radius:8px;
+  border:1px solid var(--line);background:#fff;cursor:pointer;color:var(--ink);min-height:40px;
+}
+.btn:hover{background:#F3F6F8}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
+
+/* ---------- table ---------- */
+.tablewrap{overflow:auto;border:1px solid var(--line);border-radius:10px;background:#fff}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line-soft);text-align:left;white-space:nowrap;vertical-align:middle}
+thead th{
+  position:sticky;top:0;background:var(--accent);color:#fff;font-size:12px;letter-spacing:.05em;
+  font-weight:700;z-index:2;border-bottom:none;
+}
+thead th.blankcol{color:rgba(255,255,255,.6);font-weight:400}
+tbody tr:nth-child(even){background:#FAFCFD}
+td.num{font-family:var(--mono);text-align:right;font-variant-numeric:tabular-nums}
+td.code{font-family:var(--mono)}
+td.name{white-space:normal;min-width:240px;max-width:420px}
+td.rowno{color:var(--muted);font-family:var(--mono);font-size:12px}
+td.calc{background:#FFF8E1}
+tr.bad td{background:#FDECEC}
+select.sa{font-family:var(--mono);font-size:13px;padding:5px 8px;min-height:32px;max-width:340px}
+input.crd{font-family:var(--mono);font-size:13px;padding:5px 8px;min-height:32px;width:120px}
+.tag{display:inline-block;font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;letter-spacing:.03em}
+.tag.ok{background:#E4F3EA;color:var(--ok)}
+.tag.warn{background:#FBEEDD;color:var(--warn)}
+.tag.err{background:#FBE6E6;color:var(--err)}
+
+/* ---------- notices ---------- */
+.notice{border-radius:10px;padding:12px 16px;font-size:13.5px;margin-bottom:12px;border:1px solid}
+.notice.warn{background:#FDF6EA;border-color:#EBD3AC;color:#7A4A0B}
+.notice.err{background:#FDECEC;border-color:#F0C2C2;color:#8C1D1D}
+.notice ul{margin:6px 0 0;padding-left:18px}
+.hidden{display:none !important}
+.foot{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:14px}
+.count{margin-left:auto;font-size:13px;color:var(--muted);font-family:var(--mono)}
+details.master{margin-top:14px;font-size:13px}
+details.master summary{cursor:pointer;color:var(--muted);font-weight:700;font-size:12px;letter-spacing:.04em}
+details.master table{font-size:12.5px;margin-top:10px}
+details.master td{white-space:normal}
+.src{font-size:12px;color:var(--muted);font-family:var(--mono);margin-top:10px;white-space:pre-wrap;background:#F7F9FB;border:1px solid var(--line-soft);border-radius:8px;padding:10px}
+@media (max-width:720px){
+  .switch{grid-template-columns:1fr}
+  .chan{padding:14px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none !important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <h1>発注書 取込ツール</h1>
+    <span class="sub">アンカー・ジャパン株式会社 ／ 販路別フォーマット変換</span>
+  </header>
+
+  <!-- STEP 1 : channel -->
+  <div class="switch" role="group" aria-label="販路の選択">
+    <button type="button" class="chan rentio" id="btnRentio" aria-pressed="true">
+      <span class="mark">R</span>
+      <span>
+        <span class="nm">レンティオ</span>
+        <span class="desc">Customer PO / SKU / Qty / 空欄 / CRD / Shipping Address</span>
+      </span>
+    </button>
+    <button type="button" class="chan fujimoto" id="btnFujimoto" aria-pressed="false">
+      <span class="mark">F</span>
+      <span>
+        <span class="nm">藤本</span>
+        <span class="desc">発注書No. / 商品コード / 型番 / 商品名 / 単位 / 数量 / 藤本単価 / 金額</span>
+      </span>
+    </button>
+  </div>
+
+  <div class="mode" id="modeBar">
+    <span id="modeName">レンティオ モード</span>
+    <span class="fmt" id="modeFmt"></span>
+  </div>
+
+  <!-- STEP 2 : upload -->
+  <div class="panel">
+    <h2><span class="step">1</span>注文書を読み込む</h2>
+    <label class="drop" id="drop" for="fileInput">
+      <span class="pick">ファイルを選ぶ</span>
+      <span class="txt">
+        <span class="big" id="dropTitle">レンティオの注文書を選ぶ</span>
+        <span class="small">ドラッグ＆ドロップでも読み込めます／PDF・Excel(.xlsx .xls .csv)対応／複数ファイル可</span>
+      </span>
+      <input type="file" id="fileInput" multiple accept=".pdf,.xlsx,.xls,.xlsm,.csv">
+    </label>
+    <ul class="files" id="fileList"></ul>
+  </div>
+
+  <!-- STEP 3 : result -->
+  <div class="panel hidden" id="resultPanel">
+    <h2><span class="step">2</span>内容を確認する</h2>
+
+    <div id="notices"></div>
+
+    <div class="controls" id="rentioControls">
+      <div class="field">
+        <label for="crdAll">CRD を全行にまとめて入力</label>
+        <input type="date" id="crdAll">
+      </div>
+      <div class="field">
+        <label for="saAll">納品先を全行にまとめて変更</label>
+        <select id="saAll" class="sa"></select>
+      </div>
+    </div>
+
+    <div class="tablewrap" style="margin-top:14px;max-height:60vh">
+      <table id="tbl">
+        <thead id="thead"></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+
+    <div class="src hidden" id="srcBox"></div>
+
+    <div class="foot">
+      <button class="btn primary" id="dlXlsx">Excel でダウンロード</button>
+      <button class="btn" id="dlCsv">CSV でダウンロード</button>
+      <button class="btn" id="copyBtn">表をコピー</button>
+      <button class="btn" id="clearBtn">読み込みをクリア</button>
+      <span class="count" id="rowCount"></span>
+    </div>
+
+    <details class="master" id="masterBox">
+      <summary>納品先マスタ（SA コード一覧）を表示</summary>
+      <div class="tablewrap" style="margin-top:8px">
+        <table id="masterTbl"></table>
+      </div>
+    </details>
+  </div>
+
+</div>
+
+<script>
+/* =========================================================
+   納品先マスタ（SF_Rentio 取込用 より）
+   ========================================================= */
+const SA_MASTER = [
+  {code:"SA-008476", name:"レンティオ株式会社", zip:"140-0014", addr:"東京都品川区大井4-6-1 サクラビル3F", note:"旧住所 宛先:三輪謙二朗様", tel:"03-6429-7460", def:0, old:true,  keys:["三輪","大井","サクラビル"]},
+  {code:"SA-010951", name:"レンティオ株式会社", zip:"140-0002", addr:"東京都品川区東品川3-31-8 東品川ビルディング5F", note:"Eufy通常在庫用", tel:"050-1791-2190", def:0, old:false, keys:["eufy","通常在庫"]},
+  {code:"SA-012669", name:"レンティオ株式会社", zip:"140-0002", addr:"東京都品川区東品川3-31-8 東品川ビルディング4F", note:"（デフォルト）", tel:"03-6429-7460", def:1, old:false, keys:[]},
+  {code:"SA-013589", name:"マイクロソリューション株式会社 東京事業所", zip:"358-0014", addr:"埼玉県入間市宮寺2585", note:"", tel:"04-2935-0957", def:0, old:false, keys:["マイクロソリューション","入間","宮寺"]},
+  {code:"SA-013818", name:"マイクロソリューション株式会社 東京事業所", zip:"358-0014", addr:"埼玉県入間市宮寺2585", note:"", tel:"050-5358-8074", def:0, old:false, keys:["マイクロソリューション","入間","宮寺"]},
+  {code:"SA-014466", name:"Daiwa GF Logi 千葉ロジスティクスセンター", zip:"270-1360", addr:"千葉県印西市泉野2-101-15 大和物流(株)倉庫内2階", note:"宛先:落合様", tel:"0476-48-5206", def:0, old:false, keys:["daiwa","大和物流","落合","印西","泉野"]},
+  {code:"SA-014665", name:"レンティオ株式会社", zip:"140-0002", addr:"東京都品川区東品川3-31-8 東品川ビルディング", note:"山下様（サブスク用）", tel:"050-1791-2190", def:0, old:false, keys:["山下","サブスク"]},
+  {code:"SA-015642", name:"Daiwa GF Logi", zip:"270-1360", addr:"千葉県印西市泉野2丁目101-15 1階裏手2･3番バース", note:"宛先:足立様", tel:"0476-48-5206", def:0, old:false, keys:["daiwa","足立","印西","泉野","バース"]},
+  {code:"SA-015782", name:"アドレス・サービス 東金SC", zip:"283-0013", addr:"千葉県東金市士農田9-12 東金SC2F", note:"レンティオ担当 大貫様", tel:"080-4934-7308", def:0, old:false, keys:["アドレス","東金","大貫","士農田"]},
+  {code:"SA-016775", name:"レンティオ株式会社", zip:"140-0002", addr:"東京都品川区東品川3-31-8 東品川ビルディング5F", note:"山下様（eufy通常在庫用）", tel:"050-1791-2190", def:0, old:false, keys:["山下","eufy","通常在庫"]},
+  {code:"SA-017111", name:"Daiwa GF Logi株式会社", zip:"270-1360", addr:"千葉県印西市泉野2丁目101-15 1階裏手2･3番バース", note:"", tel:"0476-48-5206", def:0, old:false, keys:["daiwa","印西","泉野","バース"]},
+  {code:"SA-017140", name:"レンティオ株式会社", zip:"140-0002", addr:"東京都品川区東品川3-31-8 東品川ビルディング4F", note:"宛先:赤木様", tel:"090-5095-0352", def:0, old:false, keys:["赤木"]},
+  {code:"SA-018969", name:"佐川グローバルロジスティクス株式会社 東京SRC", zip:"140-0012", addr:"東京都品川区勝島1-1-1 東京SRC A館4階", note:"レンティオ株式会社 気付", tel:"03-3768-8507", def:0, old:false, keys:["佐川グローバル","勝島","src","気付"]},
+  {code:"SA-025919", name:"アドレス・サービス株式会社 松尾物流センターB棟", zip:"289-1515", addr:"千葉県山武市松尾町富士見台208-78", note:"レンティオ担当", tel:"090-9775-7061", def:0, old:false, keys:["アドレス","松尾","山武","富士見台"]},
+  {code:"SA-032763", name:"ロジポート多摩瑞穂", zip:"190-1203", addr:"東京都西多摩郡瑞穂町高根623-1 1F107バース", note:"", tel:"080-3690-7552", def:0, old:false, keys:["ロジポート","瑞穂","多摩","高根"]}
+];
+
+/* =========================================================
+   共通ユーティリティ
+   ========================================================= */
+const $ = (id)=>document.getElementById(id);
+
+function nfkc(s){ return (s==null?"":String(s)).normalize("NFKC"); }
+function normText(s){
+  return nfkc(s).replace(/[\s\u3000]/g,"").toLowerCase();
+}
+function digitsOnly(s){ return nfkc(s).replace(/[^0-9]/g,""); }
+function toNum(s){
+  if(s==null) return null;
+  if(typeof s==="number") return s;
+  const t = nfkc(String(s)).replace(/[,，\s¥￥]/g,"");
+  if(!/^-?\d+(\.\d+)?$/.test(t)) return null;
+  return parseFloat(t);
+}
+function esc(s){ return (s==null?"":String(s)).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function pad2(n){ return String(n).padStart(2,"0"); }
+function fmtDate(d){ return d.getFullYear()+"/"+pad2(d.getMonth()+1)+"/"+pad2(d.getDate()); }
+
+/* SKU（型番）判定：英字1文字＋数字＋英数字 の 6〜9 桁 */
+const SKU_RE = /\b([A-Za-z][0-9][0-9A-Za-z]{4,7})\b/g;
+function findSkus(line){
+  const out=[]; let m; SKU_RE.lastIndex=0;
+  while((m=SKU_RE.exec(line))!==null){
+    const v=m[1].toUpperCase();
+    if(/^\d+$/.test(v.slice(1))&&v.length<7) continue;
+    out.push(v);
+  }
+  return out;
+}
+/* 行から数値だけを取り出す（型番などの英数字トークンは除去してから） */
+function numbersInLine(line){
+  const cleaned = nfkc(line).replace(/[A-Za-z][0-9A-Za-z]{3,}/g," ");
+  const out=[]; const re=/\d[\d,]*(?:\.\d+)?/g; let m;
+  while((m=re.exec(cleaned))!==null){
+    const v=parseFloat(m[0].replace(/,/g,""));
+    if(!isNaN(v)) out.push(v);
+  }
+  return out;
+}
+/* a*b=c となる並びを右から探す */
+function findTriple(nums){
+  for(let i=nums.length-3;i>=0;i--){
+    const a=nums[i],b=nums[i+1],c=nums[i+2];
+    if(a>0&&b>0&&c>0&&Math.abs(a*b-c)<1) return [a,b,c];
+  }
+  return null;
+}
+
+/* =========================================================
+   PDF 読み取り（行の復元）
+   ========================================================= */
+async function readPdf(file){
+  if(typeof pdfjsLib==="undefined") throw new Error("PDF読み取り用の部品を読み込めませんでした。インターネット接続を確認してください。");
+  pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  const buf=await file.arrayBuffer();
+  const pdf=await pdfjsLib.getDocument({data:buf}).promise;
+  const pages=[];
+  for(let p=1;p<=pdf.numPages;p++){
+    const page=await pdf.getPage(p);
+    const vp=page.getViewport({scale:1});
+    const tc=await page.getTextContent();
+    const items=tc.items.map(it=>({
+      str:it.str, x:it.transform[4], y:vp.height-it.transform[5]
+    })).filter(i=>i.str && i.str.trim()!=="");
+    const lines=[];
+    items.forEach(it=>{
+      let ln=lines.find(l=>Math.abs(l.y-it.y)<4.5);
+      if(!ln){ln={y:it.y,items:[]};lines.push(ln);}
+      ln.items.push(it);
+    });
+    lines.sort((a,b)=>a.y-b.y);
+    lines.forEach(l=>{
+      l.items.sort((a,b)=>a.x-b.x);
+      l.text=l.items.map(i=>i.str).join(" ").replace(/[ \t]+/g," ").trim();
+      l.x=l.items[0].x;
+    });
+    pages.push({lines,items,width:vp.width,height:vp.height});
+  }
+  return pages;
+}
+
+/* 納品場所ブロックの抽出（左半分・納品場所〜希望納期のあいだ） */
+function extractShipBlock(pages){
+  for(const pg of pages){
+    const start=pg.lines.find(l=>/納品場所/.test(l.text.replace(/\s/g,"")));
+    if(!start) continue;
+    const after=pg.lines.filter(l=>l.y>start.y);
+    const endLine=after.find(l=>/(希望納期|商品名|納期)/.test(l.text.replace(/\s/g,"")));
+    const endY=endLine?endLine.y:start.y+180;
+    const half=pg.width*0.55;
+    const picked=[];
+    pg.items.forEach(it=>{
+      if(it.y>=start.y-2 && it.y<endY-2 && it.x<half) picked.push(it);
+    });
+    if(picked.length){
+      const byY=[];
+      picked.forEach(it=>{
+        let ln=byY.find(l=>Math.abs(l.y-it.y)<4.5);
+        if(!ln){ln={y:it.y,items:[]};byY.push(ln);}
+        ln.items.push(it);
+      });
+      byY.sort((a,b)=>a.y-b.y);
+      return byY.map(l=>l.items.sort((a,b)=>a.x-b.x).map(i=>i.str).join(" ").trim()).join("\n");
+    }
+  }
+  return "";
+}
+
+/* =========================================================
+   納品先（SAコード）判定
+   ========================================================= */
+function matchSA(rawText){
+  const text=nfkc(rawText||"");
+  const flat=normText(text);
+  const phones=(text.match(/0\d{1,4}[-‐ー－\s]?\d{1,4}[-‐ー－\s]?\d{3,4}/g)||[]).map(digitsOnly);
+  const zips=(text.match(/\d{3}\s?-\s?\d{4}/g)||[]).map(digitsOnly);
+  const floors=[]; const fre=/(\d{1,2})\s*(?:F|階)/gi; let fm;
+  while((fm=fre.exec(text))!==null) floors.push(parseInt(fm[1],10));
+
+  const scored=SA_MASTER.map(m=>{
+    let s=0; const why=[];
+    const mPhone=digitsOnly(m.tel);
+    if(phones.includes(mPhone)){ s+=50; why.push("TEL一致"); }
+    const mZip=digitsOnly(m.zip);
+    if(zips.length){
+      if(zips.includes(mZip)){ s+=25; why.push("〒一致"); }
+      else s-=30;
+    }
+    const mFloorM=m.addr.match(/(\d{1,2})\s*(?:F|階)/i);
+    if(mFloorM && floors.length){
+      const mf=parseInt(mFloorM[1],10);
+      if(floors.includes(mf)){ s+=20; why.push(mf+"F一致"); }
+      else s-=25;
+    }
+    const bangi=m.addr.match(/(\d+)[-−ー](\d+)[-−ー](\d+)/);
+    if(bangi && flat.includes(normText(bangi[0]))) { s+=20; why.push("番地一致"); }
+    if(normText(m.name).length>2){
+      const head=normText(m.name).slice(0,5);
+      if(flat.includes(head)){ s+=10; }
+    }
+    let hit=0, miss=0;
+    m.keys.forEach(k=>{ if(flat.includes(normText(k))) hit++; else miss++; });
+    s += Math.min(hit,2)*25;
+    if(hit===0) s -= Math.min(miss,3)*8;
+    if(m.old) s-=20;
+    if(m.def) s+=3;
+    return {m,s,why};
+  }).sort((a,b)=>b.s-a.s);
+
+  const best=scored[0], second=scored[1];
+  let level="err";
+  if(best.s>=60 && (!second || best.s-second.s>=15)) level="ok";
+  else if(best.s>=30) level="warn";
+  return {code:best.s>=30?best.m.code:"", level, score:best.s, why:best.why.join(" / ")};
+}
+
+/* =========================================================
+   レンティオ：PDF 解析
+   ========================================================= */
+function parseRentioPdf(pages){
+  const lines=[].concat(...pages.map(p=>p.lines.map(l=>l.text)));
+  const all=lines.join("\n");
+  const flat=nfkc(all);
+
+  let po="";
+  let m=flat.match(/注\s*文\s*(?:№|No\.?|NO\.?|#)\s*[:：]?\s*([A-Za-z0-9\-_]{3,})/);
+  if(m) po=m[1];
+  if(!po){
+    const ln=lines.find(l=>/№/.test(l));
+    if(ln){ const mm=nfkc(ln).match(/№\s*[:：]?\s*([A-Za-z0-9\-_]{3,})/); if(mm) po=mm[1]; }
+  }
+
+  let crd="";
+  const cm=flat.match(/希望納期\s*[:：]?\s*([^\n]{0,24})/);
+  if(cm) crd=cm[1].trim().replace(/^[\s:：]+/,"");
+  let orderYear=(new Date()).getFullYear();
+  const ym=flat.match(/(20\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/) || flat.match(/(20\d{2})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+  if(ym) orderYear=parseInt(ym[1],10);
+  crd=normalizeCrd(crd,orderYear);
+
+  const shipText=extractShipBlock(pages) || all;
+  const sa=matchSA(shipText);
+
+  const items=[];
+  for(let i=0;i<lines.length;i++){
+    const line=lines[i];
+    if(/小計|消費税|合計|単価|数量/.test(line)) continue;
+    const skus=findSkus(line);
+    if(!skus.length) continue;
+    let nums=numbersInLine(line);
+    // 品名が折り返して数量が次の行にある場合の救済
+    if(nums.length<2 && i+1<lines.length && !findSkus(lines[i+1]).length){
+      const n2=numbersInLine(lines[i+1]);
+      if(n2.length>=2){ nums=n2; i++; }
+    }
+    if(nums.length<2) continue;
+    const tri=findTriple(nums);          // レンティオは 単価 → 数量 → 合計
+    let qty=null;
+    if(tri) qty=tri[1];
+    else if(nums.length>=3) qty=nums[nums.length-2];
+    else qty=nums[nums.length-1];
+    if(!qty||qty<=0) continue;
+    items.push({po, sku:skus[skus.length-1], qty, crd, sa:sa.code, saLevel:sa.level, saWhy:sa.why});
+  }
+  return {rows:items, shipText, sa, po};
+}
+
+/* CRD の整形（日付らしければ YYYY/MM/DD に） */
+function normalizeCrd(txt,year){
+  if(!txt) return "";
+  const t=nfkc(txt);
+  let m=t.match(/(20\d{2})[\/\-年](\d{1,2})[\/\-月](\d{1,2})/);
+  if(m) return m[1]+"/"+pad2(m[2])+"/"+pad2(m[3]);
+  m=t.match(/(\d{1,2})[\/\-月](\d{1,2})/);
+  if(m) return year+"/"+pad2(m[1])+"/"+pad2(m[2]);
+  return t.replace(/[（(].*$/,"").trim();
+}
+
+/* =========================================================
+   レンティオ：Excel 解析
+   ========================================================= */
+function parseRentioSheet(aoa,sheetName){
+  const rows=[];
+  const flatAll=aoa.map(r=>r.map(c=>c==null?"":String(c)).join(" ")).join("\n");
+  let po="";
+  let m=nfkc(flatAll).match(/注\s*文\s*(?:№|No\.?|NO\.?)\s*[:：]?\s*([A-Za-z0-9\-_]{3,})/);
+  if(m) po=m[1];
+  let crd="";
+  const cm=nfkc(flatAll).match(/希望納期\s*[:：]?\s*([^\n]{0,24})/);
+  if(cm) crd=normalizeCrd(cm[1],(new Date()).getFullYear());
+  const sa=matchSA(flatAll);
+
+  // ヘッダー行（商品名 と 数量 を含む行）を探す
+  let hIdx=-1,cName=-1,cQty=-1;
+  for(let r=0;r<aoa.length;r++){
+    const row=aoa[r]||[];
+    let n=-1,q=-1;
+    row.forEach((c,i)=>{
+      const t=normText(c);
+      if(!t) return;
+      if(n<0 && /商品名|品名|商品/.test(t)) n=i;
+      if(q<0 && /数量|個数|qty/.test(t)) q=i;
+    });
+    if(n>=0&&q>=0){ hIdx=r;cName=n;cQty=q;break; }
+  }
+  if(hIdx<0) return {rows,po,crd,sa,flatAll};
+
+  for(let r=hIdx+1;r<aoa.length;r++){
+    const row=aoa[r]||[];
+    const joined=row.map(c=>c==null?"":String(c)).join(" ");
+    if(/小計|消費税|合計金額/.test(joined)) break;
+    const qty=toNum(row[cQty]);
+    if(!qty||qty<=0) continue;
+    const skus=findSkus(joined);
+    if(!skus.length) continue;
+    rows.push({po, sku:skus[skus.length-1], qty, crd, sa:sa.code, saLevel:sa.level, saWhy:sa.why, sheet:sheetName});
+  }
+  return {rows,po,crd,sa,flatAll};
+}
+
+/* =========================================================
+   藤本：Excel 解析（全シート）
+   ========================================================= */
+function parseFujimotoSheet(aoa,sheetName){
+  const rows=[];
+  // 発注書No.
+  let poNo="";
+  outer:
+  for(let r=0;r<aoa.length;r++){
+    const row=aoa[r]||[];
+    for(let c=0;c<row.length;c++){
+      const t=normText(row[c]);
+      if(t && /発注書(no|№|ナンバー)/.test(t)){
+        for(let k=c+1;k<row.length;k++){
+          if(row[k]!=null && String(row[k]).trim()!==""){ poNo=String(row[k]).trim(); break outer; }
+        }
+      }
+    }
+  }
+  // ヘッダー行
+  let hIdx=-1, col={};
+  for(let r=0;r<aoa.length;r++){
+    const row=aoa[r]||[];
+    const found={};
+    row.forEach((c,i)=>{
+      const t=normText(c);
+      if(!t) return;
+      if(found.jan==null && /商品コード|jan/.test(t)) found.jan=i;
+      if(found.model==null && /型番/.test(t)) found.model=i;
+      if(found.name==null && /商品名|品名/.test(t)) found.name=i;
+      if(found.unit==null && /^単位$/.test(t)) found.unit=i;
+      if(found.qty==null && /数量/.test(t)) found.qty=i;
+      if(found.price==null && /単価/.test(t)) found.price=i;
+      if(found.amount==null && /金額/.test(t)) found.amount=i;
+    });
+    if(found.qty!=null && (found.jan!=null||found.model!=null) && found.price!=null){ hIdx=r; col=found; break; }
+  }
+  if(hIdx<0) return {rows,poNo};
+
+  for(let r=hIdx+1;r<aoa.length;r++){
+    const row=aoa[r]||[];
+    const joined=row.map(c=>c==null?"":String(c)).join(" ");
+    if(/小計|消費税|合計金額/.test(joined)) break;
+    const qty=toNum(col.qty!=null?row[col.qty]:null);
+    const jan=col.jan!=null&&row[col.jan]!=null?String(row[col.jan]).trim():"";
+    const model=col.model!=null&&row[col.model]!=null?String(row[col.model]).trim():"";
+    if((!jan&&!model)||!qty||qty<=0) continue;
+    const price=toNum(col.price!=null?row[col.price]:null);
+    let amount=toNum(col.amount!=null?row[col.amount]:null);
+    let calc=false;
+    if((amount==null||amount===0)&&price!=null){ amount=Math.round(price*qty); calc=true; }
+    rows.push({
+      poNo,
+      jan,
+      model,
+      name:col.name!=null&&row[col.name]!=null?String(row[col.name]).trim():"",
+      unit:col.unit!=null&&row[col.unit]!=null?String(row[col.unit]).trim():"",
+      qty,
+      price:price==null?"":price,
+      amount:amount==null?"":amount,
+      calc,
+      sheet:sheetName
+    });
+  }
+  return {rows,poNo};
+}
+
+/* 藤本：PDF（補助） */
+function parseFujimotoPdf(pages){
+  const lines=[].concat(...pages.map(p=>p.lines.map(l=>l.text)));
+  const flat=nfkc(lines.join("\n"));
+  let poNo="";
+  const m=flat.match(/発注書\s*(?:No\.?|№)\s*[:：]?\s*([A-Za-z0-9\-_]{3,})/);
+  if(m) poNo=m[1];
+  const rows=[];
+  lines.forEach(line=>{
+    const t=nfkc(line).trim();
+    if(/小計|消費税|合計|単価|数量/.test(t)) return;
+    // 行末の 数量 → 単価 → 金額 を切り出す
+    const tail=t.match(/([\d,]+(?:\.\d+)?)\s+([\d,]+(?:\.\d+)?)\s+([\d,]+(?:\.\d+)?)\s*$/);
+    if(!tail) return;
+    const qty=parseFloat(tail[1].replace(/,/g,""));
+    const price=parseFloat(tail[2].replace(/,/g,""));
+    const amount=parseFloat(tail[3].replace(/,/g,""));
+    if(!(qty>0&&price>0&&Math.abs(qty*price-amount)<1)) return;
+    let head=t.slice(0,tail.index).trim();
+    const jan=(head.match(/\b\d{13}\b/)||[])[0]||"";
+    if(jan) head=head.replace(jan," ");
+    head=head.replace(/^\s*\d{1,3}\s+/," ");
+    const model=findSkus(head)[0]||"";
+    if(model) head=head.replace(new RegExp(model,"i")," ");
+    if(!jan&&!model) return;
+    let name=head.replace(/\s+/g," ").trim();
+    let unit="";
+    const um=name.match(/[\s　](個|本|台|式|点|箱|枚|ｾｯﾄ|セット)$/);
+    if(um){ unit=um[1]; name=name.slice(0,um.index).trim(); }
+    rows.push({poNo,jan,model,name,unit,qty,price,amount,calc:false});
+  });
+  return {rows,poNo};
+}
+
+/* =========================================================
+   画面制御
+   ========================================================= */
+let channel="rentio";
+let ROWS=[];
+let SRC_TEXT="";
+let WARNINGS=[];
+const FILES=[];
+
+const FMT={
+  rentio:"Customer PO | SKU | Qty | (空欄) | CRD | Shipping Address",
+  fujimoto:"発注書No. | 商品コード | 型番 | 商品名 | 単位 | 数量 | 藤本単価 | 金額"
+};
+
+function setChannel(ch){
+  channel=ch;
+  document.body.classList.toggle("fujimoto",ch==="fujimoto");
+  $("btnRentio").setAttribute("aria-pressed",ch==="rentio");
+  $("btnFujimoto").setAttribute("aria-pressed",ch==="fujimoto");
+  $("modeName").textContent=(ch==="rentio"?"レンティオ":"藤本")+" モード";
+  $("modeFmt").textContent=FMT[ch];
+  $("dropTitle").textContent=(ch==="rentio"?"レンティオ":"藤本")+"の注文書を選ぶ";
+  $("rentioControls").classList.toggle("hidden",ch!=="rentio");
+  $("masterBox").classList.toggle("hidden",ch!=="rentio");
+  $("srcBox").classList.toggle("hidden",ch!=="rentio");
+  clearAll();
+}
+$("btnRentio").addEventListener("click",()=>setChannel("rentio"));
+$("btnFujimoto").addEventListener("click",()=>setChannel("fujimoto"));
+
+function clearAll(){
+  ROWS=[];SRC_TEXT="";WARNINGS=[];FILES.length=0;
+  $("fileList").innerHTML="";
+  $("resultPanel").classList.add("hidden");
+  $("fileInput").value="";
+}
+$("clearBtn").addEventListener("click",clearAll);
+
+/* ドロップゾーン */
+const drop=$("drop");
+["dragenter","dragover"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("over");}));
+["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("over");}));
+drop.addEventListener("drop",e=>{ if(e.dataTransfer.files.length) handleFiles(e.dataTransfer.files); });
+$("fileInput").addEventListener("change",e=>{ if(e.target.files.length) handleFiles(e.target.files); });
+
+async function handleFiles(fileList){
+  WARNINGS=[];
+  for(const f of Array.from(fileList)){
+    try{
+      const before=ROWS.length;
+      await processFile(f);
+      FILES.push({name:f.name,count:ROWS.length-before});
+    }catch(err){
+      console.error(err);
+      WARNINGS.push(f.name+"：読み取りに失敗しました（"+err.message+"）");
+      FILES.push({name:f.name,count:0});
+    }
+  }
+  renderFiles();
+  render();
+}
+
+async function processFile(f){
+  const ext=(f.name.split(".").pop()||"").toLowerCase();
+  if(ext==="pdf"){
+    const pages=await readPdf(f);
+    if(channel==="rentio"){
+      const r=parseRentioPdf(pages);
+      SRC_TEXT=r.shipText;
+      if(!r.po) WARNINGS.push(f.name+"：注文№（Customer PO）を読み取れませんでした。表で直接入力してください。");
+      if(!r.rows.length) WARNINGS.push(f.name+"：明細行が見つかりませんでした。");
+      ROWS=ROWS.concat(r.rows);
+    }else{
+      const r=parseFujimotoPdf(pages);
+      if(!r.rows.length) WARNINGS.push(f.name+"：明細行が見つかりませんでした。藤本の発注書は Excel での取り込みを推奨します。");
+      ROWS=ROWS.concat(r.rows);
+    }
+    return;
+  }
+  if(typeof XLSX==="undefined") throw new Error("Excel読み取り用の部品を読み込めませんでした。インターネット接続を確認してください。");
+  const buf=await f.arrayBuffer();
+  const wb=XLSX.read(buf,{type:"array",cellDates:true});
+  let got=0;
+  wb.SheetNames.forEach(sn=>{
+    const aoa=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:true,defval:null,blankrows:true});
+    if(channel==="rentio"){
+      const r=parseRentioSheet(aoa,sn);
+      if(r.rows.length){ SRC_TEXT=SRC_TEXT||r.flatAll.slice(0,600); ROWS=ROWS.concat(r.rows); got+=r.rows.length; }
+    }else{
+      const r=parseFujimotoSheet(aoa,sn);
+      if(r.rows.length){ ROWS=ROWS.concat(r.rows); got+=r.rows.length; }
+      else if(!r.poNo) { /* 明細の無いシートは黙って無視 */ }
+    }
+  });
+  if(!got) WARNINGS.push(f.name+"：明細行が見つかりませんでした（シート数 "+wb.SheetNames.length+"）。");
+}
+
+function renderFiles(){
+  $("fileList").innerHTML=FILES.map(f=>
+    '<li><span class="fn">'+esc(f.name)+'</span><span class="cnt">'+f.count+' 行</span></li>'
+  ).join("");
+}
+
+/* ---- 表の描画 ---- */
+function render(){
+  if(!ROWS.length && !WARNINGS.length){ $("resultPanel").classList.add("hidden"); return; }
+  $("resultPanel").classList.remove("hidden");
+  renderNotices();
+  if(channel==="rentio") renderRentio(); else renderFujimoto();
+  $("rowCount").textContent=ROWS.length+" 行";
+  $("srcBox").textContent=SRC_TEXT?("読み取った納品場所：\n"+SRC_TEXT):"";
+  $("srcBox").classList.toggle("hidden",channel!=="rentio"||!SRC_TEXT);
+}
+
+function renderNotices(){
+  const list=[...WARNINGS];
+  if(channel==="rentio"){
+    const bad=ROWS.filter(r=>r.saLevel!=="ok").length;
+    if(bad) list.push("納品先（SAコード）を自動で確定できない行が "+bad+" 行あります。黄色／赤の行はプルダウンで選び直してください。");
+    const noCrd=ROWS.filter(r=>!/^\d{4}\/\d{2}\/\d{2}$/.test(r.crd||"")).length;
+    if(noCrd) list.push("CRD が日付になっていない行が "+noCrd+" 行あります（例：「最短」）。上の日付入力でまとめて設定できます。");
+  }else{
+    const calc=ROWS.filter(r=>r.calc).length;
+    if(calc) list.push("金額が空欄だったため 数量×藤本単価 で計算した行が "+calc+" 行あります（黄色のセル）。");
+  }
+  $("notices").innerHTML = list.length
+    ? '<div class="notice warn"><strong>確認してください</strong><ul>'+list.map(t=>"<li>"+esc(t)+"</li>").join("")+"</ul></div>"
+    : '';
+}
+
+function saOptions(sel){
+  return ['<option value="">— 未選択 —</option>'].concat(
+    SA_MASTER.map(m=>'<option value="'+m.code+'"'+(m.code===sel?" selected":"")+">"+esc(m.code+"  "+m.name+(m.note?" / "+m.note:""))+"</option>")
+  ).join("");
+}
+
+function renderRentio(){
+  $("thead").innerHTML='<tr>'+
+    '<th></th><th>Customer PO</th><th>SKU</th><th>Qty</th>'+
+    '<th class="blankcol">（空欄）</th><th>CRD</th><th>Shipping Address</th><th>判定</th></tr>';
+  $("tbody").innerHTML=ROWS.map((r,i)=>{
+    const tag = r.saLevel==="ok"?'<span class="tag ok">OK</span>'
+             : r.saLevel==="warn"?'<span class="tag warn">要確認</span>'
+             : '<span class="tag err">要選択</span>';
+    return '<tr'+(r.saLevel==="err"?' class="bad"':'')+'>'+
+      '<td class="rowno">'+(i+1)+'</td>'+
+      '<td class="code"><input type="text" class="crd" style="width:150px" data-i="'+i+'" data-f="po" value="'+esc(r.po||"")+'"></td>'+
+      '<td class="code">'+esc(r.sku)+'</td>'+
+      '<td class="num">'+r.qty+'</td>'+
+      '<td></td>'+
+      '<td><input type="text" class="crd" data-i="'+i+'" data-f="crd" value="'+esc(r.crd||"")+'"></td>'+
+      '<td><select class="sa" data-i="'+i+'">'+saOptions(r.sa)+'</select></td>'+
+      '<td>'+tag+'</td></tr>';
+  }).join("");
+  $("saAll").innerHTML=saOptions("");
+  bindEditors();
+  renderMaster();
+}
+
+function renderFujimoto(){
+  $("thead").innerHTML='<tr><th></th><th>発注書No.</th><th>商品コード</th><th>型番</th><th>商品名</th>'+
+    '<th>単位</th><th>数量</th><th>藤本単価</th><th>金額</th><th>シート</th></tr>';
+  $("tbody").innerHTML=ROWS.map((r,i)=>
+    '<tr><td class="rowno">'+(i+1)+'</td>'+
+    '<td class="code">'+esc(r.poNo)+'</td>'+
+    '<td class="code">'+esc(r.jan)+'</td>'+
+    '<td class="code">'+esc(r.model)+'</td>'+
+    '<td class="name">'+esc(r.name)+'</td>'+
+    '<td>'+esc(r.unit)+'</td>'+
+    '<td class="num">'+r.qty+'</td>'+
+    '<td class="num">'+(r.price===""?"":Number(r.price).toLocaleString())+'</td>'+
+    '<td class="num'+(r.calc?" calc":"")+'">'+(r.amount===""?"":Number(r.amount).toLocaleString())+'</td>'+
+    '<td class="rowno">'+esc(r.sheet||"")+'</td></tr>'
+  ).join("");
+}
+
+function bindEditors(){
+  document.querySelectorAll("#tbody select.sa").forEach(s=>{
+    s.addEventListener("change",e=>{
+      const i=+e.target.dataset.i;
+      ROWS[i].sa=e.target.value;
+      ROWS[i].saLevel=e.target.value?"ok":"err";
+      render();
+    });
+  });
+  document.querySelectorAll("#tbody input[data-f]").forEach(inp=>{
+    inp.addEventListener("input",e=>{
+      const i=+e.target.dataset.i, f=e.target.dataset.f;
+      ROWS[i][f]=e.target.value;
+    });
+    inp.addEventListener("change",renderNotices);
+  });
+}
+
+$("crdAll").addEventListener("change",e=>{
+  if(!e.target.value) return;
+  const v=e.target.value.replace(/-/g,"/");
+  ROWS.forEach(r=>r.crd=v);
+  render();
+});
+$("saAll").addEventListener("change",e=>{
+  if(!e.target.value) return;
+  ROWS.forEach(r=>{r.sa=e.target.value;r.saLevel="ok";});
+  render();
+});
+
+function renderMaster(){
+  $("masterTbl").innerHTML='<thead><tr><th>SAコード</th><th>住所名</th><th>〒</th><th>住所</th><th>宛先など</th><th>TEL</th></tr></thead><tbody>'+
+    SA_MASTER.map(m=>'<tr><td class="code">'+m.code+'</td><td>'+esc(m.name)+'</td><td class="code">'+m.zip+'</td><td>'+esc(m.addr)+'</td><td>'+esc(m.note)+'</td><td class="code">'+m.tel+'</td></tr>').join("")+
+    '</tbody>';
+}
+
+/* =========================================================
+   出力
+   ========================================================= */
+function buildMatrix(){
+  if(channel==="rentio"){
+    const head=["Customer PO","SKU","Qty","","CRD","Shipping Address"];
+    return [head].concat(ROWS.map(r=>[r.po||"",r.sku||"",r.qty,"",r.crd||"",r.sa||""]));
+  }
+  const head=["発注書No.","商品コード","型番","商品名","単位","数量","藤本単価","金額"];
+  return [head].concat(ROWS.map(r=>[r.poNo||"",r.jan||"",r.model||"",r.name||"",r.unit||"",r.qty,r.price,r.amount]));
+}
+function stamp(){
+  const d=new Date();
+  return d.getFullYear()+pad2(d.getMonth()+1)+pad2(d.getDate())+"_"+pad2(d.getHours())+pad2(d.getMinutes());
+}
+$("dlXlsx").addEventListener("click",()=>{
+  if(!ROWS.length) return;
+  const ws=XLSX.utils.aoa_to_sheet(buildMatrix());
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,channel==="rentio"?"Rentio":"Fujimoto");
+  XLSX.writeFile(wb,(channel==="rentio"?"rentio_":"fujimoto_")+stamp()+".xlsx");
+});
+$("dlCsv").addEventListener("click",()=>{
+  if(!ROWS.length) return;
+  const csv=buildMatrix().map(r=>r.map(c=>{
+    const s=c==null?"":String(c);
+    return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;
+  }).join(",")).join("\r\n");
+  const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download=(channel==="rentio"?"rentio_":"fujimoto_")+stamp()+".csv";
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+});
+$("copyBtn").addEventListener("click",async e=>{
+  if(!ROWS.length) return;
+  const tsv=buildMatrix().map(r=>r.join("\t")).join("\n");
+  try{
+    await navigator.clipboard.writeText(tsv);
+    e.target.textContent="コピーしました";
+    setTimeout(()=>e.target.textContent="表をコピー",1600);
+  }catch(err){
+    e.target.textContent="コピーできませんでした";
+    setTimeout(()=>e.target.textContent="表をコピー",1600);
+  }
+});
+
+setChannel("rentio");
+</script>
+</body>
+</html>
